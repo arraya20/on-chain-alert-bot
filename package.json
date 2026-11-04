@@ -1,0 +1,22 @@
+{
+  "name": "pharos-on-chain-alert-bot",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "On-chain condition monitor and multi-channel notifier for Pharos Pacific (1672).",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "watch": "node scripts/watch.mjs --loop",
+    "watch:once": "node scripts/watch.mjs --once",
+    "watch:dry": "node scripts/watch.mjs --once --dry-run",
+    "test": "node test/unit.test.mjs && node test/api.test.mjs",
+    "test:live": "node test/live.test.mjs",
+    "test:delivery": "node scripts/test-delivery.mjs",
+    "verify:chain": "node scripts/verify-chain.mjs",
+    "serve": "npx --yes wrangler pages dev public --port 8793 --ip 127.0.0.1",
+    "deploy": "npx --yes wrangler pages deploy public"
+  },
+  "license": "MIT"
+}

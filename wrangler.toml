@@ -1,0 +1,10 @@
+name = "pharos-alert-bot"
+pages_build_output_dir = "public"
+
+# Pinned, not left to wrangler's default: a floating compatibility date means
+# the runtime your Functions get changes without a commit.
+compatibility_date = "2026-11-04"
+
+[vars]
+# Optional. The Pages Function falls back to https://rpc.pharos.xyz.
+# PHAROS_RPC_URL = "https://rpc.pharos.xyz"

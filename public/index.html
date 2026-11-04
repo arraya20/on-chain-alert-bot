@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pharos on-chain alert bot</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="wrap">
+    <header class="head">
+      <div>
+        <h1>Pharos on-chain alert bot</h1>
+        <p class="sub">Reads Pharos Pacific directly. Every number on this page came from a JSON-RPC call made in the last few seconds.</p>
+      </div>
+      <dl class="net" id="net">
+        <div><dt>chain</dt><dd id="chainId">—</dd></div>
+        <div><dt>head</dt><dd id="headBlock">—</dd></div>
+      </dl>
+    </header>
+
+    <div class="banner" id="banner" hidden></div>
+
+    <section class="controls">
+      <label for="window">window (blocks)</label>
+      <input id="window" type="number" min="1" max="999" value="60" inputmode="numeric">
+      <button id="evaluate" type="button">Evaluate now</button>
+      <label class="check"><input id="auto" type="checkbox" checked> refresh every 30s</label>
+      <span class="stamp" id="stamp"></span>
+    </section>
+
+    <section class="summary" id="summary" hidden>
+      <div class="stat"><span class="k">triggered</span><span class="v" id="cTriggered">0</span></div>
+      <div class="stat"><span class="k">ok</span><span class="v" id="cOk">0</span></div>
+      <div class="stat"><span class="k">error</span><span class="v" id="cError">0</span></div>
+      <div class="stat"><span class="k">blocks</span><span class="v" id="cRange">—</span></div>
+      <div class="stat"><span class="k">evaluated</span><span class="v" id="cAt">—</span></div>
+    </section>
+
+    <table class="rules" id="rules" hidden>
+      <thead>
+        <tr>
+          <th class="col-state">state</th>
+          <th>rule</th>
+          <th class="num">observed</th>
+          <th class="num">condition</th>
+          <th class="col-target">target</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+
+    <p class="empty" id="empty">Loading the current window from the chain…</p>
+
+    <section class="notes">
+      <h2>What this actually does</h2>
+      <ul>
+        <li><strong>Native transfers</strong> are read by scanning blocks; native PROS moves emit no log, so <code>eth_getLogs</code> cannot see them.</li>
+        <li><strong>Token transfers</strong> come from <code>Transfer</code> logs, with the topic derived from the signature rather than copied.</li>
+        <li><strong>Paused state</strong> is an <code>eth_call</code> of <code>paused()</code>, so it reflects the contract, not a cached dashboard.</li>
+        <li><strong>A rule that cannot be measured shows <code>ERROR</code></strong>, never <code>OK</code>. Silence is not health.</li>
+        <li>Delivery runs in the watcher (<code>scripts/watch.mjs</code>), not from this page. A public endpoint that sends messages is a spam cannon.</li>
+      </ul>
+    </section>
+
+    <footer class="foot">
+      <span id="rpcHost">rpc.pharos.xyz</span> · Pharos Agent Arena · Season of AI
+    </footer>
+  </main>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
