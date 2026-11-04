@@ -13,6 +13,11 @@
 
 * { box-sizing: border-box; }
 
+/* An author `display` rule beats the UA stylesheet's [hidden] { display: none },
+   so .summary { display: flex } silently kept a stale statistics row on screen
+   next to the error banner. The attribute has to win. */
+[hidden] { display: none !important; }
+
 html, body {
   margin: 0;
   background: var(--bg);

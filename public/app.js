@@ -147,15 +147,18 @@ async function load() {
   inFlight = true;
   els.evaluate.disabled = true;
   try {
-    const window = Math.max(1, Math.min(999, Number(els.window.value) || 60));
-    els.window.value = String(window);
-    const res = await fetch(`/api/alert?window=${window}`, { headers: { accept: "application/json" } });
+    // The window is sent as typed and the server decides whether it is legal.
+    // Clamping here would silently turn "1000" into "999" and hide the fact
+    // that the caller asked for something the node refuses.
+    const window = els.window.value.trim();
+    const res = await fetch(`/api/alert?window=${encodeURIComponent(window)}`, { headers: { accept: "application/json" } });
     const body = await res.json().catch(() => null);
     if (!res.ok || !body || body.error) {
       renderError(body?.error || { kind: `http_${res.status}`, message: res.statusText || "request failed" });
       return;
     }
     if (body.network?.rpc) els.rpcHost.textContent = new URL(body.network.rpc).host;
+    els.window.value = String(body.window);
     render(body);
   } catch (err) {
     renderError({ kind: "network", message: err.message });

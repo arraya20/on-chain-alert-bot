@@ -137,7 +137,7 @@ result to `rule.threshold`. For `>=` rules that is `threshold >= threshold`,
 which is always true. Calling the endpoint with no parameters reported all
 `>=` rules as `TRIGGERED` — an alert generated from nothing.
 
-**3. The chain id was wrong.** The README and `src/monitor.mjs` said
+**3. The chain id was wrong.** The README and the module it described both said
 `52026`. `eth_chainId` on `https://rpc.pharos.xyz` answers `0x688`, which is
 **1672**. The three watched addresses had **no code and zero balance** on
 Pharos — they are Ethereum mainnet addresses, one of them labelled "treasury"
