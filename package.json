@@ -1,7 +1,6 @@
 {
   "name": "pharos-on-chain-alert-bot",
   "version": "2.0.0",
-  "private": true,
   "type": "module",
   "description": "On-chain condition monitor and multi-channel notifier for Pharos Pacific (1672).",
   "engines": {
@@ -18,5 +17,19 @@
     "serve": "npx --yes wrangler pages dev public --port 8793 --ip 127.0.0.1",
     "deploy": "npx --yes wrangler pages deploy public"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "files": [
+    "src",
+    "scripts",
+    "functions",
+    "public",
+    "SKILL.md",
+    "README.md",
+    "LICENSE",
+    "wrangler.toml"
+  ],
+  "author": "Namri",
+  "publishConfig": {
+    "access": "public"
+  }
 }
