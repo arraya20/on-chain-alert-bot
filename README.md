@@ -11,8 +11,8 @@ produced by a command you can re-run.
 
 ```
 npm run verify:chain    # re-checks every external fact against the live chain
-npm test                # 52 offline tests, no network
-npm run test:live       # 15 assertions against rpc.pharos.xyz
+npm test                # 75 offline tests, no network
+npm run test:live       # assertions against rpc.pharos.xyz
 npm run watch:dry       # one real evaluation pass, sends nothing
 ```
 
@@ -63,10 +63,26 @@ be read at all, `3` some rules failed to measure. A cron wrapper can alert on
 non-zero without parsing text.
 
 The watcher keeps a cursor in `.state/watch.json`, so each pass scans only new
-blocks. It also records which rule it already alerted on, with a 30-minute
-cooldown (`--cooldown`), so a condition that stays true does not page you every
-minute. A failed delivery is **not** recorded, so it is retried on the next pass
-instead of being silently swallowed by the cooldown.
+blocks. Dedupe works per event, not per rule:
+
+- **Whale transfers are events.** Each one is identified by rule + tx hash (plus
+  log index for token transfers) and alerts exactly once. Two different whales
+  in the same window are two alerts; the same transaction never alerts twice.
+  Seen events are remembered for 6 hours, then forgotten.
+- **Balance, paused, chain-stall and ERROR are conditions.** They alert once per
+  episode, then at most once per cooldown (30 minutes, `--cooldown`). When the
+  rule measures OK again the episode ends, so a recurrence alerts immediately.
+- **A failed send is never recorded as sent.** A failed event goes to a pending
+  queue in the state file and is retried first on every following pass, even
+  after the cursor has moved past its block. It is abandoned after 5 attempts or
+  1 hour, and the watcher prints that it gave up. A channel with no credentials
+  is reported as `unconfigured` and is not queued.
+- **At most 25 events per rule per pass are alerted individually.** The rest are
+  counted and printed as truncated, not dropped silently.
+- **`--dry-run` writes nothing.** No cursor move, no seen events, no queue.
+
+Every alert carries a link: the transaction for transfers, the contract or
+address page for balance and paused rules, and the head block for a stall.
 
 After a long pause the catch-up is capped at 120 blocks (`--catchup`). Scanning
 the full 998-block log limit costs about a thousand round trips and would alert
@@ -108,7 +124,7 @@ npm run serve     # http://127.0.0.1:8793
 npm run deploy    # Cloudflare Pages, needs CLOUDFLARE_API_TOKEN
 ```
 
-The page calls `GET /api/alert?window=60`, which evaluates the rules live and
+The page calls `GET /api/alert`, which (default window 30 blocks) evaluates the rules live and
 returns the measurements. It renders exactly that and decides nothing: no
 threshold is compared in the browser, and when the call fails the table is
 cleared and replaced with the error. Two surfaces that compute their own verdict
@@ -189,9 +205,17 @@ five rules measured.
   queries; native transfer scanning has no such cap but costs one call per
   block, so the default window is 60 blocks and a pass takes about 4s.
 - **Native transfer scanning is the expensive rule.** 60 blocks is 60
-  `eth_getBlockByNumber` calls per pass, at concurrency 8. At a 60-second cron
+  `eth_getBlockByNumber` calls per pass, at concurrency 3. At a 60-second cron
   that is fine; a 5-second interval would be 12 requests per second and would
   deserve a rate limit you do not have.
+- **The Pages Function uses a 30-block default window.** A Function on the free
+  plan is limited to 50 subrequests per invocation and the native scan costs one
+  per block. A wider `?window=` can exceed that; the rule then reports `ERROR`,
+  never `OK`. This was not exercised against a live deployment.
+- **Webhook URL checks are literal only.** `https` is required and `localhost`,
+  private IPv4 ranges, link-local and every IPv6 literal are refused. Hostnames
+  are not resolved, so DNS that points at a private address is not caught. The
+  URL comes from operator env, never from a request.
 - **`paused()` only works on tokens that implement it.** If the selector
   reverts, the rule reports `ERROR` — it does not fall back to "not paused".
 
@@ -204,6 +228,8 @@ src/abi.mjs         uint/bool/string/address decoding, exact unit formatting
 src/metrics.mjs     readers: native transfers, ERC-20 transfers, balance, paused, head age
 src/rules.mjs       rule definitions, compare(), evaluate() with TRIGGERED/OK/ERROR/SKIPPED
 src/format.mjs      per-channel payloads, MarkdownV2 escaping
+src/links.mjs       explorer link per result: tx, address or block
+src/alerts.mjs      per-event dedupe, cooldown, pending retry queue
 src/dispatch.mjs    HTTP delivery; "sent" only on 2xx; SSRF guard; token redaction
 scripts/watch.mjs   the loop and the cron entry point, with cursor and cooldown
 scripts/verify-chain.mjs  re-checks every external fact

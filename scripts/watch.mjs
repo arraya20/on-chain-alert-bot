@@ -20,9 +20,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createClient, describeError, RpcError } from "../src/rpc.mjs";
-import { evaluate, DEFAULT_RULES, PACIFIC } from "../src/rules.mjs";
+import { evaluate, defaultWindow, DEFAULT_RULES, PACIFIC } from "../src/rules.mjs";
 import { dispatch } from "../src/dispatch.mjs";
-import { payloadFor, plainMessage } from "../src/format.mjs";
+import { payloadFor } from "../src/format.mjs";
+import { deliver, emptyState, normalizeState } from "../src/alerts.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");
@@ -60,15 +61,14 @@ function loadDotEnv(path) {
 }
 
 function readState() {
-  if (!existsSync(statePath)) return { cursor: null, alerts: {}, passes: 0 };
+  if (!existsSync(statePath)) return emptyState();
   try {
-    const s = JSON.parse(readFileSync(statePath, "utf8"));
-    return { cursor: s.cursor ?? null, alerts: s.alerts ?? {}, passes: s.passes ?? 0 };
+    return normalizeState(JSON.parse(readFileSync(statePath, "utf8")));
   } catch (err) {
     // A corrupt cursor means we do not know where we left off. Start from the
     // recent window rather than pretending we saw everything.
     console.error(`warn: state file unreadable (${err.message}); starting from a fresh window`);
-    return { cursor: null, alerts: {}, passes: 0 };
+    return emptyState();
   }
 }
 
@@ -77,13 +77,6 @@ function writeState(state) {
   writeFileSync(statePath, JSON.stringify(state, null, 2) + "\n");
 }
 
-function shouldAlert(result, state, now) {
-  if (result.state !== "TRIGGERED" && result.state !== "ERROR") return false;
-  const prev = state.alerts[result.ruleId];
-  const key = result.state === "ERROR" ? "ERROR" : "TRIGGERED";
-  if (!prev || prev.state !== key) return true;
-  return now - (prev.at ?? 0) >= cooldownMs;
-}
 
 async function pass() {
   const started = Date.now();
@@ -103,7 +96,7 @@ async function pass() {
   // trips, and an alert about a whale that moved twenty minutes ago is not
   // worth twenty seconds of every pass. The skipped span is reported, never
   // silently swallowed.
-  const windowBlocks = 60;
+  const windowBlocks = defaultWindow(DEFAULT_RULES);
   const catchUpCap = Number(valueOf("catchup", "120"));
   let fromBlock;
   let skippedBlocks = 0;
@@ -129,28 +122,26 @@ async function pass() {
     return { exitCode: 2, summary: { error: e } };
   }
 
-  const now = Date.now();
-  const toSend = evaluation.results.filter((r) => shouldAlert(r, state, now));
-  const deliveries = [];
+  // Dedupe, retry queue and cooldown live in deliver(). A failed send is never
+  // recorded as seen, and a failed event goes to the pending queue, so moving
+  // the cursor past its block does not lose it.
+  const outcome = await deliver({
+    results: evaluation.results,
+    state,
+    dryRun,
+    cooldownMs,
+    send: (channel, result) => dispatch(channel, payloadFor(channel, result)),
+  });
+  const deliveries = outcome.deliveries;
 
-  for (const result of toSend) {
-    if (dryRun) {
-      deliveries.push({ ruleId: result.ruleId, channel: result.channel, status: "dry-run", httpStatus: null, detail: null });
-      continue;
-    }
-    const payload = payloadFor(result.channel, result);
-    const d = await dispatch(result.channel, payload);
-    deliveries.push({ ruleId: result.ruleId, ...d });
-    // Only remember the alert if it actually got out; a failed send must be
-    // retried next pass, not swallowed by the cooldown.
-    if (d.status === "sent") {
-      state.alerts[result.ruleId] = { state: result.state, at: now, channel: result.channel };
-    }
+  // A dry run must leave no trace: writing the cursor would make the next real
+  // pass skip the blocks the dry run only looked at.
+  if (!dryRun) {
+    const next = outcome.state;
+    next.cursor = Math.max(head, state.cursor ?? 0);
+    next.passes = (next.passes ?? 0) + 1;
+    writeState(next);
   }
-
-  state.cursor = head;
-  state.passes = (state.passes ?? 0) + 1;
-  writeState(state);
 
   const exitCode = evaluation.counts.error === evaluation.results.length ? 2 : evaluation.degraded ? 3 : 0;
   const summary = {
@@ -161,7 +152,9 @@ async function pass() {
     skippedBlocks,
     counts: evaluation.counts,
     degraded: evaluation.degraded,
-    alertsQueued: toSend.length,
+    alertsQueued: deliveries.length,
+    eventsTruncated: outcome.truncated,
+    dropped: outcome.dropped,
     deliveries,
     durationMs: Date.now() - started,
   };
@@ -169,12 +162,12 @@ async function pass() {
   if (json) {
     console.log(JSON.stringify({ summary, results: evaluation.results }, null, 2));
   } else {
-    printHuman(summary, evaluation, toSend, dryRun);
+    printHuman(summary, evaluation, dryRun);
   }
   return { exitCode, summary };
 }
 
-function printHuman(summary, evaluation, toSend, isDry) {
+function printHuman(summary, evaluation, isDry) {
   const c = evaluation.counts;
   console.log(
     `[watch] block ${summary.head} · ${c.triggered} triggered · ${c.ok} ok · ${c.error} error · ${summary.durationMs}ms${isDry ? " · dry-run" : ""}`,
@@ -186,7 +179,13 @@ function printHuman(summary, evaluation, toSend, isDry) {
   }
   for (const d of summary.deliveries) {
     const line = d.status === "sent" ? "sent" : `${d.status}${d.httpStatus ? ` ${d.httpStatus}` : ""}`;
-    console.log(`  → ${d.ruleId} via ${d.channel}: ${line}${d.detail ? ` (${d.detail})` : ""}`);
+    console.log(`  → ${d.key ?? d.ruleId} via ${d.channel}: ${line}${d.retried ? " (retry)" : ""}${d.detail ? ` (${d.detail})` : ""}`);
+  }
+  if (summary.eventsTruncated > 0) {
+    console.log(`  ! ${summary.eventsTruncated} triggering events beyond the per-rule cap were not alerted individually`);
+  }
+  for (const d of summary.dropped ?? []) {
+    console.log(`  ! gave up on ${d.key} (${d.reason}); it was never delivered`);
   }
   if (summary.skippedBlocks > 0) {
     console.log(`  ! ${summary.skippedBlocks} blocks were skipped (catch-up cap); raise --catchup to widen the lookback`);

@@ -28,7 +28,13 @@ export function assertDeliverableUrl(raw) {
   if (u.protocol !== "https:") throw new Error(`delivery url must be https, got ${u.protocol}`);
   if (u.username || u.password) throw new Error("delivery url must not contain credentials in the authority");
   const host = u.hostname.toLowerCase();
-  if (host === "localhost" || host === "[::1]") throw new Error("delivery url must not point at localhost");
+  if (host === "localhost" || host.endsWith(".localhost")) throw new Error("delivery url must not point at localhost");
+  // Chat providers are reached by hostname. An IPv6 literal (::1, fc00::/7,
+  // fe80::/10, ::ffff:10.0.0.1) has no legitimate use here, so all are refused
+  // instead of trying to classify them. Hostnames are not resolved: this guard
+  // checks literals only and does not defend against DNS that points at a
+  // private address. The URL comes from operator env, not from a request.
+  if (host.startsWith("[")) throw new Error("delivery url must not use an IPv6 literal");
   for (const [pattern, label] of PRIVATE_V4) {
     if (pattern.test(host)) throw new Error(`delivery url must not point at ${label}`);
   }

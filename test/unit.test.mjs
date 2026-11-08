@@ -206,7 +206,9 @@ test("telegram payload declares MarkdownV2, the mode its escaping assumes", () =
   const r = { state: "TRIGGERED", name: "USDC (paused)", observedFormatted: "true", comparator: "==", thresholdFormatted: "true", target: ADDRESSES.usdc, why: "x" };
   const p = payloadFor("telegram", r);
   equal(p.parse_mode, "MarkdownV2");
-  assert(!/\(/.test(p.text.replace(/\\\(/g, "")), "an unescaped parenthesis leaked into the body");
+  // The only legitimate raw parentheses are the delimiters of the link url.
+  const withoutLink = p.text.replace(/\]\([^)]*\)/g, "]");
+  assert(!/\(/.test(withoutLink.replace(/\\\(/g, "")), "an unescaped parenthesis leaked into the body");
   assert(p.text.includes("USDC \\(paused\\)"), p.text);
 });
 test("other channels carry the same numbers", () => {

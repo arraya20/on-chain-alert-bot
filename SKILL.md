@@ -24,9 +24,9 @@ Chain is **1672** (`0x688`), RPC `https://rpc.pharos.xyz`, explorer
 ## Verify before you trust anything
 
 ```
-npm run verify:chain     # 15 checks against the live chain
-npm test                 # 52 offline tests, no network
-npm run test:live        # 15 assertions against the live chain
+npm run verify:chain     # checks against the live chain
+npm test                 # 75 offline tests, no network
+npm run test:live        # assertions against the live chain
 npm run watch:dry        # one real evaluation, sends nothing
 ```
 
@@ -52,8 +52,9 @@ take the schedule with it:
 Exit codes: `0` pass completed, `1` bad usage, `2` node unreadable, `3` some
 rules could not be measured. Alert on non-zero without parsing text.
 
-State lives in `.state/watch.json` (cursor + per-rule cooldown). Delete it to
-force a cold start over the most recent window.
+State lives in `.state/watch.json`: cursor, per-rule condition cooldown, seen
+event keys (6h TTL) and the pending retry queue. Delete it to force a cold start
+over the most recent window. `--dry-run` never writes it.
 
 ## Adding a rule
 
@@ -94,14 +95,14 @@ force a cold start over the most recent window.
   pinned at 10 gwei with zero priority fee. Do not build a fee-market alert here;
   watch chain liveness instead.
 - **Native PROS transfers emit no log.** `eth_getLogs` will never show them;
-  they require scanning blocks (one call per block, concurrency 8).
+  they require scanning blocks (one call per block, concurrency 3).
 - **Addresses copied from Ethereum mainnet look valid and are empty here.** A
   checksum-valid address with no code and zero balance is the signature of a
   lifted constant. Verify with `eth_getCode` before shipping a rule.
 - **The public node rate-limits by compute unit.** `cu limit exceeded; Request
-  too fast per second` shows up on roughly one in three 60-block scans at
-  concurrency 8. The client retries it with backoff; keep block-scan concurrency
-  low (3) so the retry does not become the burst. Do not retry a parameter
+  too fast per second` showed up on roughly one in three 60-block scans at
+  concurrency 8. The client retries it with backoff; block-scan concurrency is
+  3 so the retry does not become the burst. Do not retry a parameter
   error — only this class of answer is transient.
 
 ## Failure behaviour to preserve
@@ -110,7 +111,13 @@ force a cold start over the most recent window.
   `SKIPPED` means "nothing new to scan", never "fine".
 - `dispatch()` returns `sent` only after a 2xx, plus `failed`, `unconfigured`,
   or `blocked`. There is no `delivered`: only the provider can claim that.
-- A failed send is not recorded in the cooldown state, so it retries next pass.
+- Whale events dedupe per event (rule + tx hash, + log index for tokens), never
+  by a per-rule timer. Condition rules (balance, paused, stall, ERROR) alert once
+  per episode, then once per cooldown; an OK measurement ends the episode.
+- A failed send is never recorded as sent. Failed events go to `pending` and are
+  retried before anything new, even after the cursor passed their block.
+- Every alert has an explorer link (`src/links.mjs`); ERROR alerts carry the
+  comparator and the error text. Never print or send `undefined`.
 - The dashboard renders the API payload and computes nothing. When the API
   fails it clears the table and shows the error.
 
@@ -119,5 +126,5 @@ force a cold start over the most recent window.
 `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`, `DISCORD_WEBHOOK_URL`,
 `SLACK_WEBHOOK_URL`, `ALERT_WEBHOOK_URL` (+ optional `ALERT_WEBHOOK_SECRET`).
 Check wiring with `npm run test:delivery`, which prints the provider's own
-response. Webhook targets must be `https` and are refused if they resolve to
-private, loopback, or link-local ranges.
+response. Webhook targets must be `https`; `localhost`, private IPv4, link-local
+and IPv6 literals are refused. Hostnames are not resolved.

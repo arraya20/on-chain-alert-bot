@@ -84,10 +84,12 @@ function renderRow(result) {
   if (result.state === "SKIPPED" && result.reason) {
     nameTd.append(el("p", "err-line", result.reason));
   }
-  if (result.detail?.largest?.txHash) {
+  // The server decides which link fits the result. The href is only used if it
+  // points at the explorer, so nothing off the wire can become a javascript: URL.
+  if (result.link?.url && result.link.url.startsWith(`${EXPLORER}/`)) {
     const p = el("p", "evidence");
-    const a = el("a", null, `tx ${result.detail.largest.txHash.slice(0, 14)}…`);
-    a.href = `${EXPLORER}/tx/${result.detail.largest.txHash}`;
+    const a = el("a", null, result.link.label);
+    a.href = result.link.url;
     a.target = "_blank";
     a.rel = "noreferrer";
     p.append(a);

@@ -14,6 +14,11 @@ import {
   readGasPrice,
 } from "./metrics.mjs";
 import { formatUnits } from "./abi.mjs";
+import { linkFor } from "./links.mjs";
+
+// Per-rule cap on triggering events carried in one result. Anything above it is
+// counted in eventsTotal so truncation is stated, not hidden.
+export const MAX_TRIGGERING_EVENTS = 25;
 
 export const PACIFIC = {
   chainId: 1672,
@@ -105,6 +110,12 @@ export const DEFAULT_RULES = [
   },
 ];
 
+// Widest look-back any rule asks for. The watcher and the API derive their
+// cold-start window from this instead of hard-coding it.
+export function defaultWindow(rules = DEFAULT_RULES) {
+  return rules.reduce((max, r) => (typeof r.windowBlocks === "number" ? Math.max(max, r.windowBlocks) : max), 1);
+}
+
 const READERS = {
   native_transfer_max: (client, rule, range) => readNativeTransferMax(client, { ...range }),
   erc20_transfer_max: (client, rule, range) =>
@@ -165,6 +176,24 @@ export function formatThreshold(rule) {
   return formatObserved(rule, { value: typeof rule.threshold === "string" && rule.unit === "wei" ? BigInt(rule.threshold) : rule.threshold });
 }
 
+const baseOf = (rule) => ({
+  ruleId: rule.id,
+  name: rule.name,
+  severity: rule.severity,
+  channel: rule.channel,
+});
+
+// Events from a window reading that individually satisfy the rule. Rules that
+// are not about discrete events (balance, paused, head age) have none.
+function triggeringEvents(rule, reading) {
+  if (!Array.isArray(reading.events)) return { events: null, total: 0 };
+  const hits = reading.events.filter((e) => compare(e.value, rule.comparator, rule.threshold));
+  return {
+    events: hits.slice(0, MAX_TRIGGERING_EVENTS).map((e) => ({ ...e, value: e.value.toString() })),
+    total: hits.length,
+  };
+}
+
 /**
  * Evaluate rules against the chain.
  *
@@ -185,7 +214,7 @@ export async function evaluate(client, rules = DEFAULT_RULES, { fromBlock, toBlo
   for (const rule of rules) {
     const reader = READERS[rule.metric];
     if (!reader) {
-      results.push({ ruleId: rule.id, name: rule.name, severity: rule.severity, channel: rule.channel, state: "ERROR", error: { kind: "config", message: `no reader for metric ${rule.metric}` } });
+      results.push({ ...baseOf(rule), state: "ERROR", comparator: rule.comparator, error: { kind: "config", message: `no reader for metric ${rule.metric}` } });
       continue;
     }
 
@@ -195,7 +224,7 @@ export async function evaluate(client, rules = DEFAULT_RULES, { fromBlock, toBlo
     // depend on the window and must still be measured on that tick.
     const needsWindow = typeof rule.windowBlocks === "number";
     if (needsWindow && range.fromBlock != null && range.toBlock != null && range.fromBlock > range.toBlock) {
-      results.push({ ruleId: rule.id, name: rule.name, severity: rule.severity, channel: rule.channel, state: "SKIPPED", reason: "no new blocks since last tick" });
+      results.push({ ...baseOf(rule), state: "SKIPPED", reason: "no new blocks since last tick" });
       continue;
     }
 
@@ -207,11 +236,9 @@ export async function evaluate(client, rules = DEFAULT_RULES, { fromBlock, toBlo
         throw new Error(`reader for ${rule.metric} returned no value`);
       }
       const triggered = compare(reading.value, rule.comparator, rule.threshold);
-      results.push({
-        ruleId: rule.id,
-        name: rule.name,
-        severity: rule.severity,
-        channel: rule.channel,
+      const { events, total } = triggeringEvents(rule, reading);
+      const result = {
+        ...baseOf(rule),
         state: triggered ? "TRIGGERED" : "OK",
         metric: rule.metric,
         target: rule.target,
@@ -223,21 +250,27 @@ export async function evaluate(client, rules = DEFAULT_RULES, { fromBlock, toBlo
         detail: reading.detail || null,
         evidence: reading.evidence || [],
         why: rule.why,
-      });
+      };
+      if (events) {
+        result.events = triggered ? events : [];
+        result.eventsTotal = triggered ? total : 0;
+      }
+      result.link = linkFor(result);
+      results.push(result);
     } catch (err) {
-      results.push({
-        ruleId: rule.id,
-        name: rule.name,
-        severity: rule.severity,
-        channel: rule.channel,
+      const result = {
+        ...baseOf(rule),
         state: "ERROR",
         metric: rule.metric,
         target: rule.target,
+        comparator: rule.comparator,
         threshold: rule.threshold,
         thresholdFormatted: formatThreshold(rule),
         error: { kind: err?.kind || "internal", message: err?.message || String(err) },
         why: rule.why,
-      });
+      };
+      result.link = linkFor(result);
+      results.push(result);
     }
   }
 

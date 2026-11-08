@@ -10,7 +10,7 @@
     "watch": "node scripts/watch.mjs --loop",
     "watch:once": "node scripts/watch.mjs --once",
     "watch:dry": "node scripts/watch.mjs --once --dry-run",
-    "test": "node test/unit.test.mjs && node test/api.test.mjs",
+    "test": "node test/unit.test.mjs && node test/alerts.test.mjs && node test/api.test.mjs",
     "test:live": "node test/live.test.mjs",
     "test:delivery": "node scripts/test-delivery.mjs",
     "verify:chain": "node scripts/verify-chain.mjs",

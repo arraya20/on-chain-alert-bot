@@ -16,7 +16,11 @@ import { createClient, describeError } from "../../src/rpc.mjs";
 import { evaluate, DEFAULT_RULES, PACIFIC } from "../../src/rules.mjs";
 
 const MAX_WINDOW = 999; // inclusive block span the node accepts
-const DEFAULT_WINDOW = 60;
+// The native scan costs one subrequest per block, and a Pages Function on the
+// free plan is limited to 50 subrequests per invocation. 30 blocks plus the
+// other rules' calls stays under it. A wider window is the caller's choice; if
+// the platform refuses it, that rule is reported as ERROR, never as OK.
+const DEFAULT_WINDOW = 30;
 
 const json = (body, status = 200, extraHeaders = {}) =>
   new Response(JSON.stringify(body, null, 2), {

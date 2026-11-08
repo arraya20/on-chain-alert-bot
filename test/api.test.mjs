@@ -113,13 +113,13 @@ test("window bounds are validated before any rpc call is made", async () => {
   }
   equal(calls.length, 0, "an invalid window must not reach the node");
 });
-test("the default window is 60 blocks and the cap is 999", async () => {
+test("the default window is 30 blocks and the cap is 999", async () => {
   const calls = [];
   const { status } = await call("https://app.test/api/alert", { fetchImpl: stubFetch({ calls }) });
   equal(status, 200);
   const logCall = calls.map((c) => JSON.parse(c.body)).find((b) => b.method === "eth_getLogs");
   const from = Number(BigInt(logCall.params[0].fromBlock));
-  equal(from, 941, "60-block window ends at 1000, so it starts at 941");
+  equal(from, 971, "30-block window ends at 1000, so it starts at 971");
 });
 test("a dead node is 502 with the error, and no results key at all", async () => {
   const { status, body } = await call("https://app.test/api/alert?window=1", { fetchImpl: stubFetch({ failAll: true }) });
